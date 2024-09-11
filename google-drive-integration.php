@@ -151,7 +151,7 @@ class GoogleDriveIntegration {
 
     public function handle_google_drive_auth() {      
         try {
-            require_once plugin_dir_path(__FILE__) . 'vendor/autoload.php'; // Check if vendor exists
+            require_once plugin_dir_path(__FILE__) . 'lib/vendor/autoload.php'; // Check if vendor exists
             $client = new Google_Client();
             $options = get_option('google_drive_integration_options');
     
