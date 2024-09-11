@@ -155,8 +155,14 @@ class GoogleDriveIntegration {
             // Debug log: Verify that the function is triggered
             error_log('Google Drive Auth: Function triggered.');
             
-            // Ensure the Google API Client is loaded
-            require_once plugin_dir_path(__FILE__) . 'lib/vendor/autoload.php';
+            // Check if the Composer autoloader class is already declared
+            if (!class_exists('ComposerAutoloaderInitffeb35025b5ad3ad14746dcdb40cb839')) {
+            // Include the scoped autoloader if available
+                require_once plugin_dir_path(__FILE__) . 'lib/vendor/scoper-autoload.php';
+            } else {
+            // Fallback to the regular autoloader if scoper-autoload.php is not available
+                require_once plugin_dir_path(__FILE__) . 'lib/vendor/autoload.php';
+            }
     
             $client = new Google_Client();
             $options = get_option('google_drive_integration_options');
@@ -191,8 +197,14 @@ class GoogleDriveIntegration {
             // Log the function trigger
             error_log('Google Drive Callback: Function triggered.');
     
-            // Ensure the Google API Client is loaded
-            require_once plugin_dir_path(__FILE__) . 'lib/vendor/autoload.php';
+            // Check if the Composer autoloader class is already declared
+            if (!class_exists('ComposerAutoloaderInitffeb35025b5ad3ad14746dcdb40cb839')) {
+                // Include the scoped autoloader if available
+                    require_once plugin_dir_path(__FILE__) . 'lib/vendor/scoper-autoload.php';
+                } else {
+                // Fallback to the regular autoloader if scoper-autoload.php is not available
+                    require_once plugin_dir_path(__FILE__) . 'lib/vendor/autoload.php';
+                }
     
             // Initialize the Google client
             $client = new Google_Client();
