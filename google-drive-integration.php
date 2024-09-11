@@ -154,7 +154,7 @@ class GoogleDriveIntegration {
             // Log when the function is triggered
             error_log('Google Drive Auth: Function triggered.');
     
-            require_once plugin_dir_path(__FILE__) . 'vendor/autoload.php';
+            require_once plugin_dir_path(__FILE__) . '/lib/vendor/autoload.php';
     
             $client = new Google_Client();
             $options = get_option('google_drive_integration_options');
@@ -191,7 +191,7 @@ class GoogleDriveIntegration {
     
 
     public function handle_google_drive_callback() {
-        require_once plugin_dir_path(__FILE__) . 'vendor/autoload.php';
+        require_once plugin_dir_path(__FILE__) . 'lib/vendor/autoload.php';
         $client = new Google_Client();
         $options = get_option('google_drive_integration_options');
         $client->setClientId($options['client_id']);
