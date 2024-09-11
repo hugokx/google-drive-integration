@@ -8,7 +8,6 @@ Author: GetUP
 
 if (!defined('ABSPATH')) exit; // Exit if accessed directly
 
-
 use Sgdg\Vendor\Google\Client as Google_Client;
 use Sgdg\Vendor\Google\Service\Drive as Google_Drive;
 
@@ -20,15 +19,7 @@ class GoogleDriveIntegration {
         add_action('admin_menu', array($this, 'add_plugin_page'));
         add_action('admin_init', array($this, 'page_init'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_scripts'));
-        add_action('admin_action_oauth_grant', array($this, 'handle_oauth_grant'));
         add_action('admin_init', array($this, 'handle_admin_actions'));
-        /*
-        add_action('wp_ajax_google_drive_auth', array($this, 'handle_google_drive_auth')); // For logged-in users
-        add_action('wp_ajax_nopriv_google_drive_auth', array($this, 'handle_google_drive_auth')); // For guests
-        add_action('wp_ajax_google_drive_callback', array($this, 'handle_oauth_callback'));
-        add_action('wp_ajax_nopriv_google_drive_callback', array($this, 'handle_oauth_callback'));
-        add_action('wp_ajax_google_drive_callback', array($this, 'handle_google_drive_callback'));
-        */
     }
 
     public function handle_admin_actions() {
@@ -41,21 +32,17 @@ class GoogleDriveIntegration {
         }
     }
 
-    // Check if Skaut Google Drive Gallery is active
     public function check_required_plugin() {
-    if (!is_plugin_active('skaut-google-drive-gallery/skaut-google-drive-gallery.php')) {
-        // Deactivate this plugin if Skaut Google Drive Gallery is not active
-        deactivate_plugins(plugin_basename(__FILE__));
+        if (!is_plugin_active('skaut-google-drive-gallery/skaut-google-drive-gallery.php')) {
+            deactivate_plugins(plugin_basename(__FILE__));
             add_action('admin_notices', array($this, 'required_plugin_notice'));
         } else {
-        // Load Skaut Google Drive Gallery's vendor folder if the plugin is active
             if (!class_exists('Google_Client')) {
                 require_once WP_PLUGIN_DIR . '/skaut-google-drive-gallery/vendor/autoload.php';
             }
         }
     }
     
-    // Display a notice if Skaut Google Drive Gallery is not active
     public function required_plugin_notice() {
         echo '<div class="error"><p>Google Drive Integration requires the Skaut Google Drive Gallery plugin to be installed and active.</p></div>';
     }
@@ -101,35 +88,20 @@ class GoogleDriveIntegration {
         );
 
         add_settings_field(
-            'client_id',
-            'Client ID',
-            array($this, 'client_id_callback'),
-            'google-drive-integration-admin',
-            'google_drive_integration_setting_section'
+            'client_id', 'Client ID', array($this, 'client_id_callback'),
+            'google-drive-integration-admin', 'google_drive_integration_setting_section'
         );
-
         add_settings_field(
-            'client_secret',
-            'Client Secret',
-            array($this, 'client_secret_callback'),
-            'google-drive-integration-admin',
-            'google_drive_integration_setting_section'
+            'client_secret', 'Client Secret', array($this, 'client_secret_callback'),
+            'google-drive-integration-admin', 'google_drive_integration_setting_section'
         );
-
         add_settings_field(
-            'root_folder_id',
-            'Root Folder ID',
-            array($this, 'root_folder_id_callback'),
-            'google-drive-integration-admin',
-            'google_drive_integration_setting_section'
+            'root_folder_id', 'Root Folder ID', array($this, 'root_folder_id_callback'),
+            'google-drive-integration-admin', 'google_drive_integration_setting_section'
         );
-
         add_settings_field(
-            'google_drive_auth',
-            'Authenticate',
-            array($this, 'render_auth_button'),
-            'google-drive-integration-admin',
-            'google_drive_integration_setting_section'
+            'google_drive_auth', 'Authenticate', array($this, 'render_auth_button'),
+            'google-drive-integration-admin', 'google_drive_integration_setting_section'
         );
     }
 
@@ -190,93 +162,6 @@ class GoogleDriveIntegration {
             'rootFolderId' => $options['root_folder_id'],
             'accessToken' => $access_token
         ));
-    }
-
-    /*public function handle_google_drive_auth() {
-        // Log the function trigger
-        error_log('Google Drive Auth: Function triggered.');
-    
-        // Attempt to load the Google API client from the other plugin
-        try {
-            require_once WP_PLUGIN_DIR . '/skaut-google-drive-gallery/vendor/autoload.php';
-            error_log('Google Drive Auth: Autoloader included successfully.');
-        } catch (Exception $e) {
-            error_log('Google Drive Auth: Failed to include autoloader - ' . $e->getMessage());
-            wp_send_json_error(array('message' => 'Failed to load Google API Client.'));
-            wp_die();
-        }
-    
-        // Instantiate Google Client
-        try {
-            $client = new Google_Client();
-            error_log('Google Drive Auth: Google Client instantiated.');
-        } catch (Exception $e) {
-            error_log('Google Drive Auth: Failed to instantiate Google Client - ' . $e->getMessage());
-            wp_send_json_error(array('message' => 'Failed to instantiate Google Client.'));
-            wp_die();
-        }
-    
-        // Fetch options from the database
-        $options = get_option('google_drive_integration_options');
-        if (empty($options['client_id']) || empty($options['client_secret'])) {
-            error_log('Google Drive Auth: Client ID or Client Secret is missing.');
-            wp_send_json_error(array('message' => 'Client ID or Client Secret is missing.'));
-            wp_die();
-        }
-    
-        // Set client credentials
-        try {
-            $client->setClientId($options['client_id']);
-            $client->setClientSecret($options['client_secret']);
-            $client->setRedirectUri(admin_url('admin-ajax.php?action=google_drive_callback'));
-            $client->addScope(Google_Drive::DRIVE_READONLY);
-            error_log('Google Drive Auth: Client credentials set successfully.');
-        } catch (Exception $e) {
-            error_log('Google Drive Auth: Failed to set client credentials - ' . $e->getMessage());
-            wp_send_json_error(array('message' => 'Failed to set Google client credentials.'));
-            wp_die();
-        }
-    
-        // Generate authentication URL
-        try {
-            $auth_url = $client->createAuthUrl();
-            error_log('Google Drive Auth: Authentication URL generated - ' . $auth_url);
-            wp_send_json_success(array('auth_url' => $auth_url));
-        } catch (Exception $e) {
-            error_log('Google Drive Auth: Failed to generate Auth URL - ' . $e->getMessage());
-            wp_send_json_error(array('message' => 'Failed to generate Google Auth URL.'));
-        }
-    
-        wp_die(); // Always die at the end of an AJAX request
-    }*/
-    
-
-    public function handle_google_drive_callback() {
-        if (!isset($_GET['nonce']) || !wp_verify_nonce($_GET['nonce'], 'google_drive_callback')) {
-            wp_die('Invalid nonce');
-        }
-    
-        if (isset($_GET['code'])) {
-            $client = new Google_Client();
-            $options = get_option('google_drive_integration_options');
-            $client->setClientId($options['client_id']);
-            $client->setClientSecret($options['client_secret']);
-            $client->setRedirectUri(add_query_arg('action', 'google_drive_callback', admin_url('admin-ajax.php')));
-    
-            try {
-                $token = $client->fetchAccessTokenWithAuthCode($_GET['code']);
-                update_option('google_drive_access_token', $token);
-                echo '<script>
-                    window.opener.postMessage("google-auth-success", "*");
-                    window.close();
-                </script>';
-            } catch (Exception $e) {
-                echo 'An error occurred: ' . $e->getMessage();
-            }
-        } else {
-            echo 'Authorization code not received.';
-        }
-        exit;
     }
 
     public function handle_oauth_grant() {
@@ -346,12 +231,9 @@ class GoogleDriveIntegration {
 
 $google_drive_integration = new GoogleDriveIntegration();
 
-// Function to get Google Drive folder contents
 function get_drive_folder_contents($folder_id = null) {
     $options = get_option('google_drive_integration_options');
     $folder_id = $folder_id ?: $options['root_folder_id'];
-
-    // Here you would implement the logic to fetch folder contents using the Google Drive API
-    // This is a placeholder and should be replaced with actual API calls
+    // Implement logic to fetch folder contents using the Google Drive API
     return array('This is a placeholder for folder contents');
 }
