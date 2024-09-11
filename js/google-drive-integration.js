@@ -19,26 +19,18 @@ function loadGapiAndInit() {
 }
 
 function initGoogleDriveAPI() {
-    if (!gapiLoaded) {
-        console.log('Waiting for GAPI to load...');
-        setTimeout(initGoogleDriveAPI, 100);
-        return;
-    }
-    
-    gapi.load('client:auth2', () => {
+    gapi.load('client', () => {
         gapi.client.init({
             clientId: googleDriveIntegration.clientId,
-            scope: 'https://www.googleapis.com/auth/drive.readonly'
+            scope: 'https://www.googleapis.com/auth/drive.readonly',
+            discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']
         }).then(() => {
-            gapiInitialized = true;
-            console.log('Google Drive API initialized');
-            // Check if the user is signed in
-            if (!gapi.auth2.getAuthInstance().isSignedIn.get()) {
-                // If not signed in, trigger the sign-in flow
-                return gapi.auth2.getAuthInstance().signIn();
+            // Set the access token obtained from the server
+            if (googleDriveIntegration.accessToken) {
+                gapi.client.setToken(googleDriveIntegration.accessToken);
             }
-        }).then(() => {
-            // Dispatch an event to notify that GAPI is ready and authenticated
+            gapiLoaded = true;
+            console.log('Google Drive API initialized');
             document.dispatchEvent(new Event('gapi-loaded'));
         }).catch(error => {
             console.error('Error initializing Google Drive API:', error);
@@ -48,7 +40,7 @@ function initGoogleDriveAPI() {
 
 function listFolderContents(folderId) {
     return new Promise((resolve, reject) => {
-        if (!gapiInitialized) {
+        if (!gapiLoaded) {
             reject('Google API not initialized');
             return;
         }
