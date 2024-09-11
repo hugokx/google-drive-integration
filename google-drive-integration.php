@@ -144,7 +144,8 @@ class GoogleDriveIntegration {
         wp_localize_script('google-drive-integration', 'googleDriveIntegration', array(
             'clientId' => $options['client_id'],
             'rootFolderId' => $options['root_folder_id'],
-            'accessToken' => $access_token
+            'accessToken' => $access_token,
+            'ajaxurl' => admin_url('admin-ajax.php') // Passes admin-ajax URL to JS
         ));
     }
 

@@ -67,7 +67,7 @@ jQuery(document).ready(function($) {
 
         // AJAX request to get the Google OAuth URL
         $.ajax({
-            url: ajaxurl, // WordPress AJAX URL
+            url: googleDriveIntegration.ajaxurl, // WordPress AJAX URL
             method: 'POST',
             data: {
                 action: 'google_drive_auth'
