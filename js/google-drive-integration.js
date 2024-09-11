@@ -5,7 +5,6 @@ let gapiInitialized = false;
 
 function loadGapiAndInit() {
     if (typeof gapi === 'undefined') {
-        // Load the Google API script if it's not already loaded
         const script = document.createElement('script');
         script.src = 'https://apis.google.com/js/api.js';
         script.onload = function() {
@@ -20,18 +19,26 @@ function loadGapiAndInit() {
 }
 
 function initGoogleDriveAPI() {
-    if (!gapiLoaded) return;
+    if (!gapiLoaded) {
+        console.log('Waiting for GAPI to load...');
+        setTimeout(initGoogleDriveAPI, 100);
+        return;
+    }
     
-    gapi.load('client', () => {
+    gapi.load('client:auth2', () => {
         gapi.client.init({
-            apiKey: googleDriveIntegration.apiKey,
             clientId: googleDriveIntegration.clientId,
-            discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"],
             scope: 'https://www.googleapis.com/auth/drive.readonly'
         }).then(() => {
             gapiInitialized = true;
             console.log('Google Drive API initialized');
-            // Dispatch an event to notify that GAPI is ready
+            // Check if the user is signed in
+            if (!gapi.auth2.getAuthInstance().isSignedIn.get()) {
+                // If not signed in, trigger the sign-in flow
+                return gapi.auth2.getAuthInstance().signIn();
+            }
+        }).then(() => {
+            // Dispatch an event to notify that GAPI is ready and authenticated
             document.dispatchEvent(new Event('gapi-loaded'));
         }).catch(error => {
             console.error('Error initializing Google Drive API:', error);
@@ -48,7 +55,7 @@ function listFolderContents(folderId) {
         
         gapi.client.drive.files.list({
             q: `'${folderId}' in parents`,
-            fields: 'files(id, name, mimeType, webContentLink)'
+            fields: 'files(id, name, mimeType, webViewLink)'
         }).then(response => {
             resolve(response.result.files);
         }).catch(reject);
