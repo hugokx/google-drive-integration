@@ -8,6 +8,10 @@ Author: GetUP
 
 if (!defined('ABSPATH')) exit; // Exit if accessed directly
 
+
+use Sgdg\Vendor\Google\Client as GoogleClient;
+use Sgdg\Vendor\Google\Service\Drive as GoogleDrive;
+
 class GoogleDriveIntegration {
     private $options;
 
