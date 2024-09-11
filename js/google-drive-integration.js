@@ -59,3 +59,34 @@ loadGapiAndInit();
 
 // Expose the listFolderContents function globally
 window.listFolderContents = listFolderContents;
+
+// New code to handle OAuth 2.0 popup for authentication
+jQuery(document).ready(function($) {
+    $('.button').on('click', function(e) {
+        e.preventDefault();
+
+        // AJAX request to get the Google OAuth URL
+        $.ajax({
+            url: ajaxurl, // WordPress AJAX URL
+            method: 'POST',
+            data: {
+                action: 'google_drive_auth'
+            },
+            success: function(response) {
+                var data = JSON.parse(response);
+                var authUrl = data.auth_url;
+
+                // Open the authentication URL in a popup
+                var popup = window.open(authUrl, 'googleAuthPopup', 'width=500,height=600');
+                if (popup) {
+                    popup.focus();
+                } else {
+                    alert('Please allow popups for this site to authenticate.');
+                }
+            },
+            error: function() {
+                alert('Failed to initiate Google authentication.');
+            }
+        });
+    });
+});

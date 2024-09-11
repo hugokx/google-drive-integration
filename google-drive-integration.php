@@ -158,8 +158,10 @@ class GoogleDriveIntegration {
         $client->addScope(Google_Service_Drive::DRIVE_READONLY);
 
         $auth_url = $client->createAuthUrl();
-        wp_redirect($auth_url);
-        exit;
+
+        echo json_encode(array('auth_url' => $auth_url));
+        wp_die(); // Required for WordPress AJAX calls
+        //wp_redirect($auth_url);
     }
 
     public function handle_google_drive_callback() {
