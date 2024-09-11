@@ -9,25 +9,34 @@ Author: GetUP
 if (!defined('ABSPATH')) exit; // Exit if accessed directly
 
 use Sgdg\Vendor\Google\Client as Google_Client;
-use Sgdg\Vendor\Google\Service\Drive as Google_Drive;
+use Sgdg\Vendor\Google\Service\Drive as Google_Service_Drive;
 
 class GoogleDriveIntegration {
     private $options;
 
 
     public function __construct() {
-        //admin actions
+        // Admin actions
         add_action('admin_menu', array($this, 'add_plugin_page'));
         add_action('admin_init', array($this, 'check_required_plugin'));
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
         add_action('admin_init', array($this, 'page_init'));
         add_action('admin_init', array($this, 'handle_admin_actions'));
 
-        // Front-end actions
-        //add_action('wp_enqueue_scripts', array($this, 'enqueue_frontend_scripts'));
-        // Add AJAX hook to expose this function to JavaScript via an AJAX request
-        add_action('wp_ajax_get_banner_data', array($this, 'ajax_get_banner_data'));
-        add_action('wp_ajax_nopriv_get_banner_data', array($this, 'ajax_get_banner_data')); // For non-logged-in users
+        // Front-end AJAX action
+        add_action('wp_ajax_get_local_banners', array($this, 'get_local_banners_handler'));
+        add_action('wp_ajax_nopriv_get_local_banners', array($this, 'get_local_banners_handler')); // For non-logged-in users
+
+        // CRON job to sync images
+        add_action('sync_drive_images_cron', array($this, 'cron_sync_drive_images')); 
+
+        // Schedule the CRON job if not already scheduled
+        if (!wp_next_scheduled('sync_drive_images_cron')) {
+            wp_schedule_event(time(), 'hourly', 'sync_drive_images_cron');
+        }
+        
+        // Hook for deactivation to clear the scheduled CRON event
+        register_deactivation_hook(__FILE__, array($this, 'remove_cron_job'));
     }
 
     public function handle_admin_actions() {
@@ -146,7 +155,6 @@ class GoogleDriveIntegration {
         }
     }
     
-
     public function is_token_expired($token_data) {
         if (empty($token_data['access_token'])) {
             error_log('No access token found in the token data.');
@@ -186,7 +194,6 @@ class GoogleDriveIntegration {
         }
     }
     
-
     // Function to revoke the token from Google and remove it from WordPress
     public function revoke_token() {
         $access_token = get_option('google_drive_access_token');
@@ -465,9 +472,8 @@ class GoogleDriveIntegration {
         exit;
     }
     
-
     // Function to retrieve banner images from a specified subfolder
-    public function get_banner_data($subfolderPath) {
+    /*public function get_banner_data($subfolderPath) {
         $rootFolderId = get_option('google_drive_integration_options')['root_folder_id'];
 
         // Find the specified subfolder by its path (e.g., 'Banners/EnCours')
@@ -485,15 +491,20 @@ class GoogleDriveIntegration {
         foreach ($files as $file) {
             if (strpos($file['mimeType'], 'image/') === 0) {
                 $category = pathinfo($file['name'], PATHINFO_FILENAME); // Get the category from file name (without extension)
+
+                // Transform the Google Drive URL into a direct link
+                $file_id = $file['id']; // Get the file ID
+                $direct_link = "https://drive.google.com/uc?export=view&id=" . $file_id; // Create the direct link
+
                 $banner_data[] = [
-                    'url' => $file['webViewLink'], // Use Google Drive's web view link for the image
+                    'url' => $direct_link, // Use Google Drive's web view link for the image
                     'category' => $category
                 ];
             }
         }
 
         return $banner_data; // Return the array of banners
-    }
+    }*/
 
     // Helper function to find a subfolder based on a path (e.g., 'Banners/EnCours')
     private function find_subfolder($subfolderPath, $parentFolderId) {
@@ -532,7 +543,47 @@ class GoogleDriveIntegration {
         return $response->getFiles();
     }
 
-    // Function to handle the AJAX request
+    public function get_local_banners_handler() {
+        if (!isset($_POST['folderPath'])) {
+            wp_send_json_error('Folder path not provided');
+            return;
+        }
+    
+        // Get the folder path from the AJAX request and sanitize it
+        $folder_path = sanitize_text_field($_POST['folderPath']);
+        
+        // Construct the full path to the EnCours folder
+        $full_path = wp_normalize_path(ABSPATH . $folder_path);
+        
+        // Debug: log the full path to ensure it points to the correct directory
+        error_log('Full path to banner folder: ' . $full_path);
+        
+        // Look for image files (jpg, png, gif) in the specified folder
+        $files = glob($full_path . '*.{jpg,png,gif}', GLOB_BRACE);
+    
+        // Debug: log the files array to check what's found
+        error_log('Files found: ' . print_r($files, true));
+        
+        if (!empty($files)) {
+            $banner_data = array();
+            foreach ($files as $file) {
+                // Prepare banner data to send back to the front-end
+                $banner_data[] = array(
+                    'url' => home_url(str_replace(ABSPATH, '', $file)),
+                    'category' => basename($file, '.' . pathinfo($file, PATHINFO_EXTENSION))
+                );
+            }
+    
+            // Send the banner data back to the frontend
+            wp_send_json_success($banner_data);
+        } else {
+            // Send an error response if no files were found
+            wp_send_json_error('No images found');
+        }
+    }
+    
+
+    /* Function to handle the AJAX request
     public function ajax_get_banner_data() {
         if (!isset($_POST['subfolderPath'])) {
             wp_send_json_error('No subfolder path provided');
@@ -542,6 +593,69 @@ class GoogleDriveIntegration {
         $subfolderPath = sanitize_text_field($_POST['subfolderPath']); // Get the subfolder path from the AJAX request
         $banner_data = $this->get_banner_data($subfolderPath); // Pass the subfolder path to the function
         wp_send_json_success($banner_data);
+    }*/
+
+    // Function to download and sync images from Google Drive
+    public function sync_images_from_drive($subfolderPath) {
+        $rootFolderId = get_option('google_drive_integration_options')['root_folder_id'];
+
+        // Find the specified subfolder by its path (e.g., 'Banners/EnCours')
+        $subfolderId = $this->find_subfolder($subfolderPath, $rootFolderId);
+        
+        if (!$subfolderId) {
+            error_log('Subfolder not found in Google Drive.');
+            return false;
+        }
+
+        // List files inside the specified subfolder
+        $files = $this->list_folder_contents($subfolderId);
+
+        // Check if wp-content/uploads/EnCours/ exists, if not create it
+        $upload_dir = wp_upload_dir();
+        $sync_folder = $upload_dir['basedir'] . '/EnCours/';
+        
+        if (!file_exists($sync_folder)) {
+            mkdir($sync_folder, 0755, true);
+        }
+
+        foreach ($files as $file) {
+            if (strpos($file['mimeType'], 'image/') === 0) {
+                // Download the image from Google Drive
+                $this->download_image_from_drive($file['id'], $file['name'], $sync_folder);
+            }
+        }
+
+        return true;
+    }
+
+    // Helper function to download an image from Google Drive
+    public function download_image_from_drive($file_id, $file_name, $folder) {
+        $client = new Google_Client();
+        $client->setAccessToken(get_option('google_drive_access_token'));
+        $driveService = new Google_Service_Drive($client);
+
+        $response = $driveService->files->get($file_id, array(
+            'alt' => 'media'
+        ));
+
+        $content = $response->getBody()->getContents();
+
+        // Save the file locally in the wp-content/uploads/EnCours folder
+        $file_path = $folder . $file_name;
+        file_put_contents($file_path, $content);
+
+        error_log('Downloaded and saved file: ' . $file_name);
+    }
+
+    // Function to sync images from Google Drive (see previous examples)
+    public function cron_sync_drive_images() {
+        error_log('Running CRON sync for Google Drive images...');
+        $this->sync_images_from_drive('Banners/EnCours');
+    }
+
+    // Function to remove CRON job when plugin is deactivated
+    public function remove_cron_job() {
+        wp_clear_scheduled_hook('sync_drive_images_cron');
     }
 }
 
