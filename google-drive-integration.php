@@ -15,7 +15,8 @@ class GoogleDriveIntegration {
         add_action('admin_menu', array($this, 'add_plugin_page'));
         add_action('admin_init', array($this, 'page_init'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_scripts'));
-        add_action('wp_ajax_google_drive_auth', array($this, 'handle_google_drive_auth'));
+        add_action('wp_ajax_google_drive_auth', array($this, 'handle_google_drive_auth')); // For logged-in users
+        add_action('wp_ajax_nopriv_google_drive_auth', array($this, 'handle_google_drive_auth')); // For guests
         add_action('wp_ajax_google_drive_callback', array($this, 'handle_google_drive_callback'));
     }
 
@@ -149,62 +150,99 @@ class GoogleDriveIntegration {
         ));
     }
 
-    public function handle_google_drive_auth() {      
+    public function handle_google_drive_auth() {
         try {
-            // Log when the function is triggered
+            // Debug log: Verify that the function is triggered
             error_log('Google Drive Auth: Function triggered.');
-    
-            require_once plugin_dir_path(__FILE__) . '/lib/vendor/autoload.php';
+            
+            // Ensure the Google API Client is loaded
+            require_once plugin_dir_path(__FILE__) . 'lib/vendor/autoload.php';
     
             $client = new Google_Client();
             $options = get_option('google_drive_integration_options');
     
+            // Debug log: Check if client ID and secret are present
             if (empty($options['client_id']) || empty($options['client_secret'])) {
-                error_log('Google Drive Auth: Client ID or Client Secret is missing.');
+                error_log('Google Drive Auth: Missing Client ID or Client Secret.');
                 wp_send_json_error(array('message' => 'Client ID or Client Secret is missing.'));
-                wp_die(); // End the request if client ID or secret is missing
+                wp_die(); // Stop the script execution
             }
     
             $client->setClientId($options['client_id']);
             $client->setClientSecret($options['client_secret']);
             $client->setRedirectUri(admin_url('admin-ajax.php?action=google_drive_callback'));
-    
-            // Log the client object and configuration
-            error_log(print_r($client, true));
-    
             $client->addScope(Google_Service_Drive::DRIVE_READONLY);
     
-            // Attempt to generate the auth URL
+            // Try generating the auth URL
             $auth_url = $client->createAuthUrl();
-            // Log the generated auth URL
             error_log('Google Drive Auth: Auth URL generated - ' . $auth_url);
             wp_send_json_success(array('auth_url' => $auth_url));
-    
         } catch (Exception $e) {
-            // Log any exceptions thrown during the process
-            error_log('Google Drive Auth: Error - ' . $e->getMessage());
-            wp_send_json_error(array('message' => 'Error generating auth URL: ' . $e->getMessage()));
+            // Log the exception message
+            error_log('Google Drive Auth: Exception - ' . $e->getMessage());
+            wp_send_json_error(array('message' => 'Error generating Auth URL: ' . $e->getMessage()));
         }
     
-        wp_die(); // Always call wp_die() at the end of the function to properly terminate the request
+        wp_die(); // Ensure the script ends properly
     }
     
-
     public function handle_google_drive_callback() {
-        require_once plugin_dir_path(__FILE__) . 'lib/vendor/autoload.php';
-        $client = new Google_Client();
-        $options = get_option('google_drive_integration_options');
-        $client->setClientId($options['client_id']);
-        $client->setClientSecret($options['client_secret']);
-        $client->setRedirectUri(admin_url('admin-ajax.php?action=google_drive_callback'));
-
-        if (isset($_GET['code'])) {
-            $token = $client->fetchAccessTokenWithAuthCode($_GET['code']);
-            update_option('google_drive_access_token', $token);
-            wp_redirect(admin_url('options-general.php?page=google-drive-integration'));
-            exit;
+        try {
+            // Log the function trigger
+            error_log('Google Drive Callback: Function triggered.');
+    
+            // Ensure the Google API Client is loaded
+            require_once plugin_dir_path(__FILE__) . 'lib/vendor/autoload.php';
+    
+            // Initialize the Google client
+            $client = new Google_Client();
+            $options = get_option('google_drive_integration_options');
+    
+            if (empty($options['client_id']) || empty($options['client_secret'])) {
+                error_log('Google Drive Callback: Client ID or Client Secret is missing.');
+                wp_die('Google Drive Client ID or Client Secret is not configured.', 'Google Drive Error', array('response' => 500));
+            }
+    
+            // Set up the Google Client with credentials and redirect URI
+            $client->setClientId($options['client_id']);
+            $client->setClientSecret($options['client_secret']);
+            $client->setRedirectUri(admin_url('admin-ajax.php?action=google_drive_callback'));
+    
+            // Check if the authorization code is present
+            if (isset($_GET['code'])) {
+                error_log('Google Drive Callback: Authorization code received.');
+    
+                // Try to exchange the authorization code for an access token
+                $token = $client->fetchAccessTokenWithAuthCode($_GET['code']);
+    
+                // Check if an error occurred while fetching the access token
+                if (isset($token['error'])) {
+                    error_log('Google Drive Callback: Error fetching access token - ' . $token['error']);
+                    wp_die('Error fetching Google Drive access token: ' . $token['error'], 'Google Drive Error', array('response' => 500));
+                }
+    
+                // Log the access token and any relevant data
+                error_log('Google Drive Callback: Access token fetched successfully - ' . print_r($token, true));
+    
+                // Save the access token in WordPress options for future use
+                update_option('google_drive_access_token', $token);
+    
+                // Redirect the user back to the plugin's settings page
+                error_log('Google Drive Callback: Redirecting back to plugin settings.');
+                wp_redirect(admin_url('options-general.php?page=google-drive-integration'));
+                exit;
+            } else {
+                // Log if the 'code' parameter is missing in the URL
+                error_log('Google Drive Callback: Authorization code not found.');
+                wp_die('Authorization code is missing from the callback URL.', 'Google Drive Error', array('response' => 400));
+            }
+        } catch (Exception $e) {
+            // Catch any exceptions and log the error message
+            error_log('Google Drive Callback: Exception occurred - ' . $e->getMessage());
+            wp_die('An error occurred during Google Drive authentication: ' . $e->getMessage(), 'Google Drive Error', array('response' => 500));
         }
     }
+    
 }
 
 $google_drive_integration = new GoogleDriveIntegration();
