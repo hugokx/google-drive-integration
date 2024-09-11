@@ -15,6 +15,8 @@ class GoogleDriveIntegration {
         add_action('admin_menu', array($this, 'add_plugin_page'));
         add_action('admin_init', array($this, 'page_init'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_scripts'));
+        add_action('wp_ajax_google_drive_auth', array($this, 'handle_google_drive_auth'));
+        add_action('wp_ajax_google_drive_callback', array($this, 'handle_google_drive_callback'));
     }
 
     public function add_plugin_page() {
@@ -80,6 +82,14 @@ class GoogleDriveIntegration {
             'google-drive-integration-admin',
             'google_drive_integration_setting_section'
         );
+
+        add_settings_field(
+            'google_drive_auth',
+            'Authenticate',
+            array($this, 'render_auth_button'),
+            'google-drive-integration-admin',
+            'google_drive_integration_setting_section'
+        );
     }
 
     public function sanitize($input) {
@@ -121,13 +131,51 @@ class GoogleDriveIntegration {
         );
     }
 
+    public function render_auth_button() {
+        $auth_url = admin_url('admin-ajax.php?action=google_drive_auth');
+        echo '<a href="' . esc_url($auth_url) . '" class="button">Establish Authentication</a>';
+    }
+
     public function enqueue_scripts() {
         wp_enqueue_script('google-api', 'https://apis.google.com/js/api.js');
         wp_enqueue_script('google-drive-integration', plugin_dir_url(__FILE__) . 'js/google-drive-integration.js', array('jquery', 'google-api'), '1.0', true);
+        $options = get_option('google_drive_integration_options');
+        $access_token = get_option('google_drive_access_token');
         wp_localize_script('google-drive-integration', 'googleDriveIntegration', array(
-            'clientId' => $this->options['client_id'],
-            'rootFolderId' => $this->options['root_folder_id']
+            'clientId' => $options['client_id'],
+            'rootFolderId' => $options['root_folder_id'],
+            'accessToken' => $access_token
         ));
+    }
+
+    public function handle_google_drive_auth() {
+        require_once plugin_dir_path(__FILE__) . 'vendor/autoload.php';
+        $client = new Google_Client();
+        $options = get_option('google_drive_integration_options');
+        $client->setClientId($options['client_id']);
+        $client->setClientSecret($options['client_secret']);
+        $client->setRedirectUri(admin_url('admin-ajax.php?action=google_drive_callback'));
+        $client->addScope(Google_Service_Drive::DRIVE_READONLY);
+
+        $auth_url = $client->createAuthUrl();
+        wp_redirect($auth_url);
+        exit;
+    }
+
+    public function handle_google_drive_callback() {
+        require_once plugin_dir_path(__FILE__) . 'vendor/autoload.php';
+        $client = new Google_Client();
+        $options = get_option('google_drive_integration_options');
+        $client->setClientId($options['client_id']);
+        $client->setClientSecret($options['client_secret']);
+        $client->setRedirectUri(admin_url('admin-ajax.php?action=google_drive_callback'));
+
+        if (isset($_GET['code'])) {
+            $token = $client->fetchAccessTokenWithAuthCode($_GET['code']);
+            update_option('google_drive_access_token', $token);
+            wp_redirect(admin_url('options-general.php?page=google-drive-integration'));
+            exit;
+        }
     }
 }
 
