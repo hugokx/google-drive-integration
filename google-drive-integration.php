@@ -9,8 +9,8 @@ Author: GetUP
 if (!defined('ABSPATH')) exit; // Exit if accessed directly
 
 
-use Sgdg\Vendor\Google\Client as GoogleClient;
-use Sgdg\Vendor\Google\Service\Drive as GoogleDrive;
+use Sgdg\Vendor\Google\Client as Google_Client;
+use Sgdg\Vendor\Google\Service\Drive as Google_Drive;
 
 class GoogleDriveIntegration {
     private $options;
@@ -20,9 +20,25 @@ class GoogleDriveIntegration {
         add_action('admin_menu', array($this, 'add_plugin_page'));
         add_action('admin_init', array($this, 'page_init'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_scripts'));
+        add_action('admin_action_oauth_grant', array($this, 'handle_oauth_grant'));
+        add_action('admin_init', array($this, 'handle_admin_actions'));
+        /*
         add_action('wp_ajax_google_drive_auth', array($this, 'handle_google_drive_auth')); // For logged-in users
         add_action('wp_ajax_nopriv_google_drive_auth', array($this, 'handle_google_drive_auth')); // For guests
+        add_action('wp_ajax_google_drive_callback', array($this, 'handle_oauth_callback'));
+        add_action('wp_ajax_nopriv_google_drive_callback', array($this, 'handle_oauth_callback'));
         add_action('wp_ajax_google_drive_callback', array($this, 'handle_google_drive_callback'));
+        */
+    }
+
+    public function handle_admin_actions() {
+        if (isset($_GET['page']) && $_GET['page'] === 'google-drive-integration') {
+            if (isset($_GET['action']) && $_GET['action'] === 'oauth_grant') {
+                $this->handle_oauth_grant();
+            } elseif (isset($_GET['action']) && $_GET['action'] === 'oauth_redirect') {
+                $this->handle_oauth_redirect();
+            }
+        }
     }
 
     // Check if Skaut Google Drive Gallery is active
@@ -157,8 +173,11 @@ class GoogleDriveIntegration {
     }
 
     public function render_auth_button() {
-        $auth_url = admin_url('admin-ajax.php?action=google_drive_auth');
-        echo '<a href="' . esc_url($auth_url) . '" class="button">Establish Authentication</a>';
+        echo '<a class="button button-primary" href="' .
+            esc_url_raw(wp_nonce_url(admin_url('admin.php?page=google-drive-integration&action=oauth_grant'), 'oauth_grant')) .
+            '">' .
+            esc_html__('Grant Permission', 'google-drive-integration') .
+            '</a>';
     }
 
     public function enqueue_scripts() {
@@ -169,12 +188,11 @@ class GoogleDriveIntegration {
         wp_localize_script('google-drive-integration', 'googleDriveIntegration', array(
             'clientId' => $options['client_id'],
             'rootFolderId' => $options['root_folder_id'],
-            'accessToken' => $access_token,
-            'ajaxurl' => admin_url('admin-ajax.php') // Passes admin-ajax URL to JS
+            'accessToken' => $access_token
         ));
     }
 
-    public function handle_google_drive_auth() {
+    /*public function handle_google_drive_auth() {
         // Log the function trigger
         error_log('Google Drive Auth: Function triggered.');
     
@@ -211,7 +229,7 @@ class GoogleDriveIntegration {
             $client->setClientId($options['client_id']);
             $client->setClientSecret($options['client_secret']);
             $client->setRedirectUri(admin_url('admin-ajax.php?action=google_drive_callback'));
-            $client->addScope(Google_Service_Drive::DRIVE_READONLY);
+            $client->addScope(Google_Drive::DRIVE_READONLY);
             error_log('Google Drive Auth: Client credentials set successfully.');
         } catch (Exception $e) {
             error_log('Google Drive Auth: Failed to set client credentials - ' . $e->getMessage());
@@ -230,77 +248,99 @@ class GoogleDriveIntegration {
         }
     
         wp_die(); // Always die at the end of an AJAX request
-    }
+    }*/
     
 
     public function handle_google_drive_callback() {
-        // Log the function trigger
-        error_log('Google Drive Callback: Function triggered.');
-    
-        // Attempt to load the Google API client from the other plugin
-        try {
-            require_once WP_PLUGIN_DIR . '/skaut-google-drive-gallery/vendor/autoload.php';
-            error_log('Google Drive Callback: Autoloader included successfully.');
-        } catch (Exception $e) {
-            error_log('Google Drive Callback: Failed to include autoloader - ' . $e->getMessage());
-            wp_die('Failed to load Google API Client.', 'Google Drive Error', array('response' => 500));
+        if (!isset($_GET['nonce']) || !wp_verify_nonce($_GET['nonce'], 'google_drive_callback')) {
+            wp_die('Invalid nonce');
         }
     
-        // Instantiate Google Client
-        try {
+        if (isset($_GET['code'])) {
             $client = new Google_Client();
-            error_log('Google Drive Callback: Google Client instantiated.');
-        } catch (Exception $e) {
-            error_log('Google Drive Callback: Failed to instantiate Google Client - ' . $e->getMessage());
-            wp_die('Failed to instantiate Google Client.', 'Google Drive Error', array('response' => 500));
-        }
-    
-        // Fetch options from the database
-        $options = get_option('google_drive_integration_options');
-        if (empty($options['client_id']) || empty($options['client_secret'])) {
-            error_log('Google Drive Callback: Client ID or Client Secret is missing.');
-            wp_die('Client ID or Client Secret is missing.', 'Google Drive Error', array('response' => 500));
-        }
-    
-        // Set client credentials
-        try {
+            $options = get_option('google_drive_integration_options');
             $client->setClientId($options['client_id']);
             $client->setClientSecret($options['client_secret']);
-            $client->setRedirectUri(admin_url('admin-ajax.php?action=google_drive_callback'));
-            error_log('Google Drive Callback: Client credentials set successfully.');
-        } catch (Exception $e) {
-            error_log('Google Drive Callback: Failed to set client credentials - ' . $e->getMessage());
-            wp_die('Failed to set Google client credentials.', 'Google Drive Error', array('response' => 500));
-        }
+            $client->setRedirectUri(add_query_arg('action', 'google_drive_callback', admin_url('admin-ajax.php')));
     
-        // Handle the callback with the authorization code
-        if (isset($_GET['code'])) {
             try {
                 $token = $client->fetchAccessTokenWithAuthCode($_GET['code']);
-                error_log('Google Drive Callback: Token fetched successfully.');
-                
-                // Check for errors in token response
-                if (isset($token['error'])) {
-                    error_log('Google Drive Callback: Error fetching access token - ' . $token['error']);
-                    wp_die('Error fetching access token: ' . $token['error'], 'Google Drive Error', array('response' => 500));
-                }
-    
-                // Save the token in the options
                 update_option('google_drive_access_token', $token);
-                error_log('Google Drive Callback: Token saved successfully.');
-    
-                // Redirect to the settings page
-                wp_redirect(admin_url('options-general.php?page=google-drive-integration'));
-                exit;
-    
+                echo '<script>
+                    window.opener.postMessage("google-auth-success", "*");
+                    window.close();
+                </script>';
             } catch (Exception $e) {
-                error_log('Google Drive Callback: Error during token exchange - ' . $e->getMessage());
-                wp_die('Error during token exchange: ' . $e->getMessage(), 'Google Drive Error', array('response' => 500));
+                echo 'An error occurred: ' . $e->getMessage();
             }
         } else {
-            error_log('Google Drive Callback: Authorization code missing.');
-            wp_die('Authorization code is missing.', 'Google Drive Error', array('response' => 400));
+            echo 'Authorization code not received.';
         }
+        exit;
+    }
+
+    public function handle_oauth_grant() {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+    
+        if (!wp_verify_nonce($_GET['_wpnonce'], 'oauth_grant')) {
+            wp_die('Invalid nonce');
+        }
+    
+        $client = new Google_Client();
+        $options = get_option('google_drive_integration_options');
+        $client->setClientId($options['client_id']);
+        $client->setClientSecret($options['client_secret']);
+        $client->setRedirectUri(admin_url('admin.php?page=google-drive-integration&action=oauth_redirect'));
+        $client->addScope(Google_Drive::DRIVE_READONLY);
+        $auth_url = $client->createAuthUrl();
+        
+        wp_redirect($auth_url);
+        exit;
+    }
+
+    public function handle_oauth_redirect() {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+    
+        if (isset($_GET['code'])) {
+            $client = new Google_Client();
+            $options = get_option('google_drive_integration_options');
+            $client->setClientId($options['client_id']);
+            $client->setClientSecret($options['client_secret']);
+            $client->setRedirectUri(admin_url('admin.php?page=google-drive-integration&action=oauth_redirect'));
+    
+            try {
+                $token = $client->fetchAccessTokenWithAuthCode($_GET['code']);
+                update_option('google_drive_access_token', $token);
+                add_settings_error(
+                    'google_drive_messages',
+                    'oauth_updated',
+                    __('Permission granted.', 'google-drive-integration'),
+                    'updated'
+                );
+            } catch (Exception $e) {
+                add_settings_error(
+                    'google_drive_messages',
+                    'oauth_failed',
+                    __('An error occurred: ', 'google-drive-integration') . $e->getMessage(),
+                    'error'
+                );
+            }
+        } else {
+            add_settings_error(
+                'google_drive_messages',
+                'oauth_failed',
+                __('No authorization code received from Google.', 'google-drive-integration'),
+                'error'
+            );
+        }
+    
+        set_transient('settings_errors', get_settings_errors(), 30);
+        wp_safe_redirect(admin_url('admin.php?page=google-drive-integration&settings-updated=true'));
+        exit;
     }
 }
 
