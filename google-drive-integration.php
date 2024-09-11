@@ -153,41 +153,42 @@ class GoogleDriveIntegration {
         try {
             // Log when the function is triggered
             error_log('Google Drive Auth: Function triggered.');
-
+    
             require_once plugin_dir_path(__FILE__) . 'vendor/autoload.php';
-
+    
             $client = new Google_Client();
             $options = get_option('google_drive_integration_options');
-
+    
             if (empty($options['client_id']) || empty($options['client_secret'])) {
                 error_log('Google Drive Auth: Client ID or Client Secret is missing.');
                 wp_send_json_error(array('message' => 'Client ID or Client Secret is missing.'));
-            return;
+                wp_die(); // End the request if client ID or secret is missing
             }
-
+    
             $client->setClientId($options['client_id']);
             $client->setClientSecret($options['client_secret']);
             $client->setRedirectUri(admin_url('admin-ajax.php?action=google_drive_callback'));
-
+    
             // Log the client object and configuration
             error_log(print_r($client, true));
-
+    
             $client->addScope(Google_Service_Drive::DRIVE_READONLY);
-
-            try {
-                $auth_url = $client->createAuthUrl();
-                // Log the generated auth URL
-                error_log('Google Drive Auth: Auth URL generated - ' . $auth_url);
-                wp_send_json_success(array('auth_url' => $auth_url));
-            } catch (Exception $e) {
-                // Log any exceptions thrown during auth URL generation
-                error_log('Google Drive Auth: Error generating auth URL - ' . $e->getMessage());
-                wp_send_json_error(array('message' => 'Error generating auth URL.'));
-            }
-
-            wp_die(); // End the request properly
+    
+            // Attempt to generate the auth URL
+            $auth_url = $client->createAuthUrl();
+            // Log the generated auth URL
+            error_log('Google Drive Auth: Auth URL generated - ' . $auth_url);
+            wp_send_json_success(array('auth_url' => $auth_url));
+    
+        } catch (Exception $e) {
+            // Log any exceptions thrown during the process
+            error_log('Google Drive Auth: Error - ' . $e->getMessage());
+            wp_send_json_error(array('message' => 'Error generating auth URL: ' . $e->getMessage()));
         }
+    
+        wp_die(); // Always call wp_die() at the end of the function to properly terminate the request
     }
+    
 
     public function handle_google_drive_callback() {
         require_once plugin_dir_path(__FILE__) . 'vendor/autoload.php';
