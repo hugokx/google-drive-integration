@@ -149,13 +149,7 @@ class GoogleDriveIntegration {
         ));
     }
 
-    public function handle_google_drive_auth() {
-        if (class_exists('Google_Client')) {
-            echo 'Google API Client library is available.';
-        } else {
-            echo 'Google API Client library is NOT available.';
-        }
-        
+    public function handle_google_drive_auth() {      
         try {
             require_once plugin_dir_path(__FILE__) . 'vendor/autoload.php'; // Check if vendor exists
             $client = new Google_Client();
