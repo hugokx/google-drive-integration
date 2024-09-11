@@ -12,12 +12,32 @@ class GoogleDriveIntegration {
     private $options;
 
     public function __construct() {
+        add_action('admin_init', array($this, 'check_required_plugin'));
         add_action('admin_menu', array($this, 'add_plugin_page'));
         add_action('admin_init', array($this, 'page_init'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_scripts'));
         add_action('wp_ajax_google_drive_auth', array($this, 'handle_google_drive_auth')); // For logged-in users
         add_action('wp_ajax_nopriv_google_drive_auth', array($this, 'handle_google_drive_auth')); // For guests
         add_action('wp_ajax_google_drive_callback', array($this, 'handle_google_drive_callback'));
+    }
+
+    // Check if Skaut Google Drive Gallery is active
+    public function check_required_plugin() {
+    if (!is_plugin_active('skaut-google-drive-gallery/skaut-google-drive-gallery.php')) {
+        // Deactivate this plugin if Skaut Google Drive Gallery is not active
+        deactivate_plugins(plugin_basename(__FILE__));
+            add_action('admin_notices', array($this, 'required_plugin_notice'));
+        } else {
+        // Load Skaut Google Drive Gallery's vendor folder if the plugin is active
+            if (!class_exists('Google_Client')) {
+                require_once WP_PLUGIN_DIR . '/skaut-google-drive-gallery/vendor/autoload.php';
+            }
+        }
+    }
+    
+    // Display a notice if Skaut Google Drive Gallery is not active
+    public function required_plugin_notice() {
+        echo '<div class="error"><p>Google Drive Integration requires the Skaut Google Drive Gallery plugin to be installed and active.</p></div>';
     }
 
     public function add_plugin_page() {
@@ -151,107 +171,38 @@ class GoogleDriveIntegration {
     }
 
     public function handle_google_drive_auth() {
-        try {
-            // Debug log: Verify that the function is triggered
-            error_log('Google Drive Auth: Function triggered.');
-            
-            // Check if the Composer autoloader class is already declared
-            if (!class_exists('ComposerAutoloaderInitffeb35025b5ad3ad14746dcdb40cb839')) {
-            // Include the scoped autoloader if available
-                require_once plugin_dir_path(__FILE__) . 'lib/vendor/scoper-autoload.php';
-            } else {
-            // Fallback to the regular autoloader if scoper-autoload.php is not available
-                require_once plugin_dir_path(__FILE__) . 'lib/vendor/autoload.php';
-            }
-    
-            $client = new Google_Client();
-            $options = get_option('google_drive_integration_options');
-    
-            // Debug log: Check if client ID and secret are present
-            if (empty($options['client_id']) || empty($options['client_secret'])) {
-                error_log('Google Drive Auth: Missing Client ID or Client Secret.');
-                wp_send_json_error(array('message' => 'Client ID or Client Secret is missing.'));
-                wp_die(); // Stop the script execution
-            }
-    
-            $client->setClientId($options['client_id']);
-            $client->setClientSecret($options['client_secret']);
-            $client->setRedirectUri(admin_url('admin-ajax.php?action=google_drive_callback'));
-            $client->addScope(Google_Service_Drive::DRIVE_READONLY);
-    
-            // Try generating the auth URL
-            $auth_url = $client->createAuthUrl();
-            error_log('Google Drive Auth: Auth URL generated - ' . $auth_url);
-            wp_send_json_success(array('auth_url' => $auth_url));
-        } catch (Exception $e) {
-            // Log the exception message
-            error_log('Google Drive Auth: Exception - ' . $e->getMessage());
-            wp_send_json_error(array('message' => 'Error generating Auth URL: ' . $e->getMessage()));
+        require_once WP_PLUGIN_DIR . '/skaut-google-drive-gallery/vendor/autoload.php'; // Using the vendor folder of the other plugin
+        $client = new Google_Client();
+        $options = get_option('google_drive_integration_options');
+
+        if (empty($options['client_id']) || empty($options['client_secret'])) {
+            wp_send_json_error(array('message' => 'Client ID or Client Secret is missing.'));
+            wp_die();
         }
-    
-        wp_die(); // Ensure the script ends properly
+
+        $client->setClientId($options['client_id']);
+        $client->setClientSecret($options['client_secret']);
+        $client->setRedirectUri(admin_url('admin-ajax.php?action=google_drive_callback'));
+        $client->addScope(Google_Service_Drive::DRIVE_READONLY);
+
+        $auth_url = $client->createAuthUrl();
+        wp_send_json_success(array('auth_url' => $auth_url));
+        wp_die();
     }
-    
+
     public function handle_google_drive_callback() {
-        try {
-            // Log the function trigger
-            error_log('Google Drive Callback: Function triggered.');
-    
-            // Check if the Composer autoloader class is already declared
-            if (!class_exists('ComposerAutoloaderInitffeb35025b5ad3ad14746dcdb40cb839')) {
-                // Include the scoped autoloader if available
-                    require_once plugin_dir_path(__FILE__) . 'lib/vendor/scoper-autoload.php';
-                } else {
-                // Fallback to the regular autoloader if scoper-autoload.php is not available
-                    require_once plugin_dir_path(__FILE__) . 'lib/vendor/autoload.php';
-                }
-    
-            // Initialize the Google client
-            $client = new Google_Client();
-            $options = get_option('google_drive_integration_options');
-    
-            if (empty($options['client_id']) || empty($options['client_secret'])) {
-                error_log('Google Drive Callback: Client ID or Client Secret is missing.');
-                wp_die('Google Drive Client ID or Client Secret is not configured.', 'Google Drive Error', array('response' => 500));
-            }
-    
-            // Set up the Google Client with credentials and redirect URI
-            $client->setClientId($options['client_id']);
-            $client->setClientSecret($options['client_secret']);
-            $client->setRedirectUri(admin_url('admin-ajax.php?action=google_drive_callback'));
-    
-            // Check if the authorization code is present
-            if (isset($_GET['code'])) {
-                error_log('Google Drive Callback: Authorization code received.');
-    
-                // Try to exchange the authorization code for an access token
-                $token = $client->fetchAccessTokenWithAuthCode($_GET['code']);
-    
-                // Check if an error occurred while fetching the access token
-                if (isset($token['error'])) {
-                    error_log('Google Drive Callback: Error fetching access token - ' . $token['error']);
-                    wp_die('Error fetching Google Drive access token: ' . $token['error'], 'Google Drive Error', array('response' => 500));
-                }
-    
-                // Log the access token and any relevant data
-                error_log('Google Drive Callback: Access token fetched successfully - ' . print_r($token, true));
-    
-                // Save the access token in WordPress options for future use
-                update_option('google_drive_access_token', $token);
-    
-                // Redirect the user back to the plugin's settings page
-                error_log('Google Drive Callback: Redirecting back to plugin settings.');
-                wp_redirect(admin_url('options-general.php?page=google-drive-integration'));
-                exit;
-            } else {
-                // Log if the 'code' parameter is missing in the URL
-                error_log('Google Drive Callback: Authorization code not found.');
-                wp_die('Authorization code is missing from the callback URL.', 'Google Drive Error', array('response' => 400));
-            }
-        } catch (Exception $e) {
-            // Catch any exceptions and log the error message
-            error_log('Google Drive Callback: Exception occurred - ' . $e->getMessage());
-            wp_die('An error occurred during Google Drive authentication: ' . $e->getMessage(), 'Google Drive Error', array('response' => 500));
+        require_once WP_PLUGIN_DIR . '/skaut-google-drive-gallery/vendor/autoload.php'; // Using the vendor folder of the other plugin
+        $client = new Google_Client();
+        $options = get_option('google_drive_integration_options');
+        $client->setClientId($options['client_id']);
+        $client->setClientSecret($options['client_secret']);
+        $client->setRedirectUri(admin_url('admin-ajax.php?action=google_drive_callback'));
+
+        if (isset($_GET['code'])) {
+            $token = $client->fetchAccessTokenWithAuthCode($_GET['code']);
+            update_option('google_drive_access_token', $token);
+            wp_redirect(admin_url('options-general.php?page=google-drive-integration'));
+            exit;
         }
     }
     
