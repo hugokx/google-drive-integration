@@ -553,8 +553,10 @@ class GoogleDriveIntegration {
 		// Get the folder path from the AJAX request and sanitize it
 		$folder_path = sanitize_text_field($_POST['folderPath']);
 		
-		// Full server path to the folder
-		$full_path = ABSPATH . $folder_path;
+        // Full server path to the folder
+        $upload_dir = wp_upload_dir();
+        $full_path = trailingslashit($upload_dir['basedir']) . ltrim($folder_path, '/'); // Ensure a consistent path
+
 		
 		// Find image files in the specified folder
 		$files = glob($full_path . '*.{jpg,png,gif,webp}', GLOB_BRACE);
@@ -614,9 +616,9 @@ class GoogleDriveIntegration {
 			return $file['name'];
 		}, $drive_files);
 	
-		// Get the local files in the sync folder
-		$upload_dir = wp_upload_dir();
-		$sync_folder = $upload_dir['basedir'] . '/EnCours/';
+        // Full server path to the folder
+        $upload_dir = wp_upload_dir();
+        $full_path = trailingslashit($upload_dir['basedir']) . ltrim($folder_path, '/'); // Ensure a consistent path
 		
 		if (!file_exists($sync_folder)) {
 			mkdir($sync_folder, 0755, true);
@@ -663,7 +665,11 @@ class GoogleDriveIntegration {
         $file_path = $folder . $file_name;
         file_put_contents($file_path, $content);
 
-        error_log('Downloaded and saved file: ' . $file_name);
+        if (file_put_contents($file_path, $content) !== false) {
+            error_log('Successfully downloaded and saved file: ' . $file_name);
+        } else {
+            error_log('Failed to save file: ' . $file_name);
+        }
     }
 
     // Function to sync images from Google Drive (see previous examples)
