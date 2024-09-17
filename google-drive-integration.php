@@ -543,44 +543,45 @@ class GoogleDriveIntegration {
         return $response->getFiles();
     }
 
-    public function get_local_banners_handler() {
-        if (!isset($_POST['folderPath'])) {
-            wp_send_json_error('Folder path not provided');
-            return;
-        }
-    
-        // Get the folder path from the AJAX request and sanitize it
-        $folder_path = sanitize_text_field($_POST['folderPath']);
-        
-        // Construct the full path to the EnCours folder
-        $full_path = wp_normalize_path(ABSPATH . $folder_path);
-        
-        // Debug: log the full path to ensure it points to the correct directory
-        error_log('Full path to banner folder: ' . $full_path);
-        
-        // Look for image files (jpg, png, gif) in the specified folder
-        $files = glob($full_path . '*.{jpg,png,gif}', GLOB_BRACE);
-    
-        // Debug: log the files array to check what's found
-        error_log('Files found: ' . print_r($files, true));
-        
-        if (!empty($files)) {
-            $banner_data = array();
-            foreach ($files as $file) {
-                // Prepare banner data to send back to the front-end
-                $banner_data[] = array(
-                    'url' => home_url(str_replace(ABSPATH, '', $file)),
-                    'category' => basename($file, '.' . pathinfo($file, PATHINFO_EXTENSION))
-                );
-            }
-    
-            // Send the banner data back to the frontend
-            wp_send_json_success($banner_data);
-        } else {
-            // Send an error response if no files were found
-            wp_send_json_error('No images found');
-        }
-    }
+	// Function to retrieve banners and include full category hierarchy
+	public function get_local_banners_handler() {
+		if (!isset($_POST['folderPath'])) {
+			wp_send_json_error('Folder path not provided');
+			return;
+		}
+	
+		// Get the folder path from the AJAX request and sanitize it
+		$folder_path = sanitize_text_field($_POST['folderPath']);
+		
+		// Full server path to the folder
+		$full_path = ABSPATH . $folder_path;
+		
+		// Find image files in the specified folder
+		$files = glob($full_path . '*.{jpg,png,gif,webp}', GLOB_BRACE);
+	
+		if (!empty($files)) {
+			$banner_data = array();
+			foreach ($files as $file) {
+				$file_name = basename($file, '.' . pathinfo($file, PATHINFO_EXTENSION));
+	
+				// Extract the category_id from the file name
+				$file_parts = explode('_', $file_name);
+				$category_id = $file_parts[1]; // category_id is the second part of the filename
+	
+				// Get full category slug path
+				$full_category_path = $this->get_full_category_path($category_id);
+	
+				$banner_data[] = array(
+					'url' => home_url(str_replace(ABSPATH, '', $file)),
+					'category_path' => $full_category_path // Full hierarchical category path
+				);
+			}
+	
+			wp_send_json_success($banner_data);
+		} else {
+			wp_send_json_error('No images found');
+		}
+	}
     
 
     /* Function to handle the AJAX request
@@ -595,38 +596,56 @@ class GoogleDriveIntegration {
         wp_send_json_success($banner_data);
     }*/
 
-    // Function to download and sync images from Google Drive
-    public function sync_images_from_drive($subfolderPath) {
-        $rootFolderId = get_option('google_drive_integration_options')['root_folder_id'];
-
-        // Find the specified subfolder by its path (e.g., 'Banners/EnCours')
-        $subfolderId = $this->find_subfolder($subfolderPath, $rootFolderId);
-        
-        if (!$subfolderId) {
-            error_log('Subfolder not found in Google Drive.');
-            return false;
-        }
-
-        // List files inside the specified subfolder
-        $files = $this->list_folder_contents($subfolderId);
-
-        // Check if wp-content/uploads/EnCours/ exists, if not create it
-        $upload_dir = wp_upload_dir();
-        $sync_folder = $upload_dir['basedir'] . '/EnCours/';
-        
-        if (!file_exists($sync_folder)) {
-            mkdir($sync_folder, 0755, true);
-        }
-
-        foreach ($files as $file) {
-            if (strpos($file['mimeType'], 'image/') === 0) {
-                // Download the image from Google Drive
-                $this->download_image_from_drive($file['id'], $file['name'], $sync_folder);
-            }
-        }
-
-        return true;
-    }
+	// Updated sync_images_from_drive to remove files not found on Google Drive
+	public function sync_images_from_drive($subfolderPath) {
+		$rootFolderId = get_option('google_drive_integration_options')['root_folder_id'];
+	
+		// Find the specified subfolder by its path (e.g., 'Banners/EnCours')
+		$subfolderId = $this->find_subfolder($subfolderPath, $rootFolderId);
+		
+		if (!$subfolderId) {
+			error_log('Subfolder not found in Google Drive.');
+			return false;
+		}
+	
+		// List files inside the specified subfolder on Google Drive
+		$drive_files = $this->list_folder_contents($subfolderId);
+		$drive_file_names = array_map(function($file) {
+			return $file['name'];
+		}, $drive_files);
+	
+		// Get the local files in the sync folder
+		$upload_dir = wp_upload_dir();
+		$sync_folder = $upload_dir['basedir'] . '/EnCours/';
+		
+		if (!file_exists($sync_folder)) {
+			mkdir($sync_folder, 0755, true);
+		}
+	
+		$local_files = glob($sync_folder . '*.{jpg,png,gif}', GLOB_BRACE);
+		$local_file_names = array_map(function($file) {
+			return basename($file);
+		}, $local_files);
+	
+		// Remove local files that are no longer on Google Drive
+		foreach ($local_files as $local_file) {
+			$local_file_name = basename($local_file);
+			if (!in_array($local_file_name, $drive_file_names)) {
+				unlink($local_file); // Delete the file
+				error_log('Deleted local file not found on Drive: ' . $local_file_name);
+			}
+		}
+	
+		// Download any new images from Google Drive
+		foreach ($drive_files as $file) {
+			if (strpos($file['mimeType'], 'image/') === 0) {
+				// Download the image from Google Drive
+				$this->download_image_from_drive($file['id'], $file['name'], $sync_folder);
+			}
+		}
+	
+		return true;
+	}
 
     // Helper function to download an image from Google Drive
     public function download_image_from_drive($file_id, $file_name, $folder) {
@@ -657,6 +676,56 @@ class GoogleDriveIntegration {
     public function remove_cron_job() {
         wp_clear_scheduled_hook('sync_drive_images_cron');
     }
+
+    // Validate the filename format: category_id_int_YYYYMMDD
+    private function is_valid_filename($filename) {
+        // This regex checks if the filename follows the pattern "category_id_int_YYYYMMDD"
+        // Example: 5_2_20240911 (category_id: 5, image number: 2, date: 2024-09-11)
+        $pattern = '/^\d+_\d+_\d{8}$/'; // One or more digits for category, underscore, one or more digits for image number, underscore, then exactly 8 digits for date
+        return preg_match($pattern, pathinfo($filename, PATHINFO_FILENAME)); // Check filename without extension
+    }
+
+    // Parse the filename into its components: category_id, image_number, and date (YYYYMMDD)
+    private function parse_image_filename($filename) {
+        // Remove file extension and split the filename by underscores
+        $name_parts = explode('_', pathinfo($filename, PATHINFO_FILENAME));
+
+        // Make sure we have exactly three parts (category_id, image_number, date)
+        if (count($name_parts) === 3) {
+            return array(
+                'category_id'  => intval($name_parts[0]),   // First part is the category_id
+                'image_number' => intval($name_parts[1]),   // Second part is the image number
+                'upload_date'  => $name_parts[2]            // Third part is the date (YYYYMMDD)
+            );
+        } else {
+        return false; // Invalid filename format
+        }
+    }
+
+    // Helper function to retrieve the category slug based on term_id
+    public function get_category_slug_from_term_id($term_id) {
+        $term = get_term_by('id', $term_id, 'product_cat'); // 'product_cat' for WooCommerce categories
+        if ($term && !is_wp_error($term)) {
+            return $term->slug; // Return the slug
+        }
+        return null; // If term is not found, return null
+    }
+
+    // Recursive function to get the full category path for a term ID
+    public function get_full_category_path($category_id) {
+        $term = get_term($category_id, 'product_cat'); // 'product_cat' for WooCommerce categories
+        if ($term && !is_wp_error($term)) {
+            $slug = $term->slug;
+            if ($term->parent) {
+                // Recursively get the parent category slugs
+                return $this->get_full_category_path($term->parent) . '/' . $slug;
+            } else {
+                return $slug; // This is the top-level category
+            }
+        }
+        return ''; // Return an empty string if the category is not found
+    }
+
 }
 
 $google_drive_integration = new GoogleDriveIntegration();
